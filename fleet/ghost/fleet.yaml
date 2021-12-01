@@ -1,0 +1,7 @@
+defaultNamespace: ghost
+
+helm:
+  chart: github.com/bashofmann/kubernetes-demo-prod-app/charts/ghost
+  releaseName: ghost
+  values:
+

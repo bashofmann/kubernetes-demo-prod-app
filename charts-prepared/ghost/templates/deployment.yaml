@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ghost.fullname" . }}
+  labels:
+    {{- include "ghost.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ghost.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ghost.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+      {{- if .Values.mysqlcluster.enabled }}
+      - name: wait-for-db
+        image: mysql:latest
+        command:
+        - /bin/bash
+        env:
+          - name: DB_HOST
+            value: {{ include "ghost.fullname" . }}-db-mysql-master
+        envFrom:
+          - secretRef:
+              name: {{ include "ghost.fullname" . }}-db
+        args:
+        - -c
+        - >
+          set -x;
+          while ! mysqlshow -u $USER --password=$PASSWORD -h $DB_HOST $DATABASE; do
+            sleep 15;
+          done
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+          {{- if .Values.ingress.enabled }}
+            {{- range .Values.ingress.hosts }}
+            - name: url
+              value: https://{{ .host }}
+            {{- end }}
+            {{- if .Values.mysqlcluster.enabled }}
+            - name: database__client
+              value: mysql
+            - name: database__connection__host
+              value: {{ include "ghost.fullname" . }}-db-mysql-master
+            - name: database__connection__user
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ghost.fullname" . }}-db
+                  key: USER
+            - name: database__connection__password
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ghost.fullname" . }}-db
+                  key: PASSWORD
+            - name: database__connection__database
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ghost.fullname" . }}-db
+                  key: DATABASE
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 2368
+              protocol: TCP
+          {{- if .Values.storage.enabled }}
+          volumeMounts:
+            - name: {{ include "ghost.fullname" . }}
+              mountPath: /var/lib/ghost/content
+          {{- end }}
+          livenessProbe:
+            timeoutSeconds: 3
+            periodSeconds: 10
+            failureThreshold: 20
+            httpGet:
+              path: /
+              {{- if .Values.ingress.tls }}
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
+              {{- end }}
+              port: http
+          readinessProbe:
+            timeoutSeconds: 3
+            httpGet:
+              path: /
+              {{- if .Values.ingress.tls }}
+              httpHeaders:
+                - name: X-Forwarded-Proto
+                  value: https
+              {{- end }}
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.storage.enabled }}
+      volumes:
+        - name: {{ include "ghost.fullname" . }}
+          persistentVolumeClaim:
+            claimName: {{ include "ghost.fullname" . }}
+      {{- end }}
