@@ -1,7 +1,0 @@
-provider: digitalocean
-
-domainFilters:
-  - k8sdemo.plgrnd.be
-
-txtOwnerId: k8sdemo
-policy: sync
